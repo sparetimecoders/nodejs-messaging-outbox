@@ -1,7 +1,7 @@
 // MIT License
 // Copyright (c) 2026 sparetimecoders
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect } from "bun:test";
 import { Writer } from "./writer.js";
 import type { OutboxInserter, OutboxRecord } from "./types.js";
 
