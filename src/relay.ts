@@ -11,6 +11,7 @@ import type {
 } from "./types.js";
 
 const tracer = trace.getTracer("outbox-relay");
+const MAX_BACKOFF_MS = 30_000;
 
 /**
  * Creates a relay that polls the outbox store and publishes events to the broker.
@@ -25,9 +26,14 @@ export function createRelay(
   const pollIntervalMs = config.pollIntervalMs ?? 1000;
   const batchSize = config.batchSize ?? 100;
 
+  if (batchSize <= 0) throw new Error("batchSize must be positive");
+  if (pollIntervalMs <= 0) throw new Error("pollIntervalMs must be positive");
+
   let running = false;
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
   let inflight: Promise<void> | null = null;
+  let stopPromise: Promise<void> | null = null;
+  let consecutiveErrors = 0;
 
   async function processEvents(): Promise<void> {
     if (!running) return;
@@ -42,8 +48,6 @@ export function createRelay(
             const publishedIDs: string[] = [];
 
             for (const record of records) {
-              if (!running) break;
-
               try {
                 await publisher.publishRaw(
                   record.routing_key,
@@ -64,8 +68,14 @@ export function createRelay(
           },
         );
 
+        // When the batch was full there may be more events waiting,
+        // so we poll again immediately rather than waiting for the
+        // next interval. This is a conservative heuristic: it avoids
+        // an extra SELECT to check whether more rows exist.
         batchWasFull = published >= batchSize;
+        consecutiveErrors = 0;
       } catch (err) {
+        consecutiveErrors += 1;
         span.recordException(
           err instanceof Error ? err : new Error(String(err)),
         );
@@ -80,15 +90,27 @@ export function createRelay(
     });
 
     if (running) {
-      const delay = batchWasFull ? 0 : pollIntervalMs;
+      const backoffDelay =
+        consecutiveErrors > 0
+          ? Math.min(
+              pollIntervalMs * Math.pow(2, consecutiveErrors),
+              MAX_BACKOFF_MS,
+            ) + Math.random() * 1000
+          : 0;
+      const delay = batchWasFull ? 0 : Math.max(pollIntervalMs, backoffDelay);
       timeoutId = setTimeout(processEvents, delay);
     }
   }
 
   return {
-    start() {
+    async start() {
+      if (stopPromise) {
+        await stopPromise;
+        stopPromise = null;
+      }
       if (running) return;
       running = true;
+      consecutiveErrors = 0;
       log.info(
         { pollIntervalMs, batchSize },
         "Outbox relay started",
@@ -104,10 +126,14 @@ export function createRelay(
         clearTimeout(timeoutId);
         timeoutId = null;
       }
-      if (inflight) {
-        await inflight;
-      }
-      log.info("Outbox relay stopped");
+      const doStop = async (): Promise<void> => {
+        if (inflight) {
+          await inflight;
+        }
+        log.info({}, "Outbox relay stopped");
+      };
+      stopPromise = doStop();
+      await stopPromise;
     },
   };
 }

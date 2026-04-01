@@ -51,4 +51,19 @@ describe("Writer", () => {
 
     expect(inserter.inserted[0].headers["ce-subject"]).toBe("user/123");
   });
+
+  it("does not allow caller to override required CE headers", async () => {
+    const inserter = mockInserter();
+    const writer = new Writer("test-service");
+
+    await writer.write(inserter, {
+      routingKey: "user.created",
+      payload: { name: "alice" },
+      headers: { "ce-source": "attacker", "ce-type": "evil.event" },
+    });
+
+    const headers = inserter.inserted[0].headers;
+    expect(headers["ce-source"]).toBe("test-service");
+    expect(headers["ce-type"]).toBe("user.created");
+  });
 });

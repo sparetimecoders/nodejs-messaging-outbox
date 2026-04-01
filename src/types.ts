@@ -6,7 +6,7 @@ export interface OutboxRecord {
   id: string;
   event_type: string;
   routing_key: string;
-  /** JSON-serialized payload (stored as string to match Go's []byte). */
+  /** JSON-serialized payload (stored as string to match Go []byte). */
   payload: string;
   headers: Record<string, string>;
   created_at: Date;
@@ -19,7 +19,13 @@ export interface OutboxEvent {
   headers?: Record<string, string>;
 }
 
-/** Write path: inserts outbox records within a caller-managed transaction. */
+/**
+ * Write path: inserts outbox records within a caller-managed transaction.
+ *
+ * The Writer supplies `id` and `created_at` so that the CE `ce-id` header
+ * and the database row share the same identity and timestamp, guaranteeing
+ * consistency between the stored record and the published CloudEvent.
+ */
 export interface OutboxInserter {
   insert(record: OutboxRecord): Promise<void>;
 }
@@ -57,9 +63,7 @@ export interface RawPublisher {
 /** Pino-compatible logger subset. */
 export interface Logger {
   info(obj: Record<string, unknown>, msg?: string): void;
-  info(msg: string): void;
   error(obj: Record<string, unknown>, msg?: string): void;
-  error(msg: string): void;
 }
 
 /** Relay polling configuration. */
@@ -72,6 +76,6 @@ export interface RelayConfig {
 
 /** Controls the relay lifecycle. */
 export interface RelayHandle {
-  start: () => void;
+  start: () => Promise<void>;
   stop: () => Promise<void>;
 }

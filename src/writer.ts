@@ -32,13 +32,13 @@ export class Writer {
   async write(inserter: OutboxInserter, event: OutboxEvent): Promise<void> {
     const now = new Date();
     const ceHeaders: Record<string, string> = {
+      ...event.headers,
       [CESpecVersion]: CESpecVersionValue,
       [CEType]: event.routingKey,
       [CESource]: this.serviceName,
       [CEID]: randomUUID(),
       [CETime]: now.toISOString(),
       [CEDataContentType]: "application/json",
-      ...event.headers,
     };
 
     const record: OutboxRecord = {

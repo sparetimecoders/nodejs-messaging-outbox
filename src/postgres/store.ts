@@ -1,17 +1,20 @@
 // MIT License
 // Copyright (c) 2026 sparetimecoders
 
-import { readFileSync } from "node:fs";
-import { join, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
 import type { Pool, PoolClient } from "pg";
 import type { OutboxInserter, OutboxProcessor, OutboxRecord } from "../types.js";
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const migrationSQL = readFileSync(
-  join(__dirname, "migrations", "001_create_outbox.sql"),
-  "utf-8",
+const migrationSQL = `\
+CREATE TABLE IF NOT EXISTS messaging_outbox (
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    event_type  TEXT        NOT NULL,
+    routing_key TEXT        NOT NULL,
+    payload     JSONB       NOT NULL,
+    headers     JSONB       NOT NULL DEFAULT '{}',
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+CREATE INDEX IF NOT EXISTS idx_messaging_outbox_created_at ON messaging_outbox (created_at, id);`;
 
 export interface PostgresStoreOptions {
   /** Skip running the embedded migration on creation. Default: false. */
